@@ -1186,7 +1186,7 @@ function sesMetniTemizle(metin) {
 // - motor "duraklatılmış" kalabiliyor → resume()
 // - seçilen (çevrimiçi/doğal) ses hata verirse → varsayılan sesle yeniden dene
 // - cihaz sesi hiç başlamazsa (hata bile vermeden susarsa) → çevrimiçi ses dosyasıyla çal
-const SES_SURUM = 's3';
+const SES_SURUM = 's4-teshis';
 let _sesUtt = null, _sesSayac = 0, _sesAudio = null, _cihazSesiBozuk = false;
 function sesTeshis(neden) {
   const vs = window.speechSynthesis?.getVoices?.() || [];
@@ -1203,6 +1203,48 @@ function cevrimiciSes(yazi, hiz, benim) {
   a.onerror = () => { if (benim === _sesSayac) sesTeshis('çevrimiçi ses yüklenemedi'); };
   const p = a.play();
   if (p?.catch) p.catch(e => { if (benim === _sesSayac) sesTeshis(e?.name === 'NotAllowedError' ? 'tarayıcı izin vermedi, tekrar basın' : 'çevrimiçi ses: ' + (e?.name || 'hata')); });
+}
+// ---- Ses teşhis paneli (Ayarlar). Yalnızca ne olduğunu kaydeder, hiçbir şeyi düzeltmez.
+function sesTestiBagla() {
+  const log = $('#st-log'); if (!log) return;
+  const t0 = { v: performance.now() };
+  const yaz = m => { log.textContent += `[${Math.round(performance.now() - t0.v)}ms] ${m}\n`; };
+  const ss = window.speechSynthesis;
+  const vs = ss?.getVoices?.() || [];
+  log.textContent = '';
+  yaz('UA: ' + navigator.userAgent);
+  yaz('speechSynthesis: ' + (ss ? 'var' : 'YOK') + ' · Utterance: ' + (typeof SpeechSynthesisUtterance));
+  yaz('ses sayısı: ' + vs.length + ' · seçilen: ' + (almancaSes ? almancaSes.name + ' (' + almancaSes.lang + ', yerel=' + almancaSes.localService + ')' : 'yok'));
+  yaz('sesler: ' + (vs.map(v => v.lang + ':' + v.name).join(' | ') || '-'));
+  yaz('çevrimiçi: ' + navigator.onLine + ' · SW: ' + (navigator.serviceWorker?.controller ? 'aktif' : 'yok'));
+  const metin = 'Guten Morgen, wie geht es dir heute?';
+  $('#st-cihaz').onclick = () => {
+    t0.v = performance.now(); yaz('--- cihaz sesi testi');
+    if (!ss) return yaz('speechSynthesis yok');
+    yaz('önce: speaking=' + ss.speaking + ' pending=' + ss.pending + ' paused=' + ss.paused);
+    ss.cancel();
+    const u = new SpeechSynthesisUtterance(metin); u.lang = 'de-DE'; if (almancaSes) u.voice = almancaSes;
+    u.onstart = () => yaz('onstart'); u.onend = () => yaz('onend');
+    u.onerror = e => yaz('onerror: ' + e.error); u.onboundary = e => yaz('onboundary ' + e.charIndex);
+    window._stUtt = u;
+    try { ss.speak(u); yaz('speak() çağrıldı'); } catch (e) { yaz('speak() istisna: ' + e); }
+    [300, 1500, 4000].forEach(ms => setTimeout(() => yaz(`+${ms}: speaking=${ss.speaking} pending=${ss.pending}`), ms));
+  };
+  $('#st-web').onclick = () => {
+    t0.v = performance.now(); yaz('--- çevrimiçi ses testi');
+    const a = new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=de&q=' + encodeURIComponent(metin));
+    window._stAudio = a;
+    ['loadstart', 'canplay', 'playing', 'ended', 'stalled', 'suspend'].forEach(ev => a.addEventListener(ev, () => yaz('audio ' + ev)));
+    a.onerror = () => yaz('audio error: kod ' + (a.error?.code ?? '?'));
+    const p = a.play(); yaz('play() çağrıldı');
+    p?.then?.(() => yaz('play() başarılı'), e => yaz('play() reddedildi: ' + e?.name + ' ' + e?.message));
+  };
+  $('#st-uygulama').onclick = () => {
+    t0.v = performance.now(); yaz('--- uygulamanın kendi seslendir() fonksiyonu');
+    seslendir(metin);
+    yaz('seslendir() döndü · cihazSesiBozuk=' + _cihazSesiBozuk);
+    setTimeout(() => yaz('+2000: cihazSesiBozuk=' + _cihazSesiBozuk + ' · çevrimiçi audio=' + (_sesAudio ? (_sesAudio.paused ? 'duruyor' : 'çalıyor') : 'yok') + ' · speaking=' + window.speechSynthesis?.speaking), 2000);
+  };
 }
 function seslendir(metin, hiz = 0.95) {
   const yazi = sesMetniTemizle(metin);
@@ -1681,6 +1723,9 @@ function ayarEkran() {
     <h2>Çalışma deneyimi</h2>
     <label class="ayar"><span>Cevabı otomatik seslendir<br><span class="small muted">Ses: ${esc(almancaSes?.name || 'Almanca ses bulunamadı')}</span></span>
       <input type="checkbox" id="so" ${a.sesOto ? 'checked' : ''}></label>
+    <div class="ayar" style="display:block"><b>Ses testi (teşhis)</b> <span class="small muted">sürüm ${SES_SURUM}</span><br>
+      <button type="button" id="st-cihaz">1) Cihaz sesi</button> <button type="button" id="st-web">2) Çevrimiçi ses</button> <button type="button" id="st-uygulama">3) Uygulama düğmesi</button>
+      <pre id="st-log" class="small" style="white-space:pre-wrap;user-select:text;max-height:280px;overflow:auto;margin:8px 0 0"></pre></div>
     <label class="ayar"><span>Dikte kartları<br><span class="small muted">Her kalıp cümlesi ayrıca dinlenip yazılır (Hören pratiği). Değişince sayfa yenilenir.</span></span>
       <input type="checkbox" id="dk" ${a.dikte !== false ? 'checked' : ''}></label>
     <label class="ayar"><span>Yeni kelimeyi önce göster<br><span class="small muted">Yeni kelime ve kalıp önce anlamı ve sesiyle tanıtılır, bir kez yazılır; asıl soru birkaç kart sonra gelir.</span></span>
@@ -1718,6 +1763,7 @@ function ayarEkran() {
   $('#hd').onchange = e => { a.hedef = parseFloat(e.target.value); ayarKaydet(); durumuKur(); };
   $('#ys').onchange = e => { a.yeniSira = e.target.value; ayarKaydet(); };
   $('#so').onchange = e => { a.sesOto = e.target.checked; ayarKaydet(); };
+  sesTestiBagla();
   $('#og').onchange = e => { a.onceGoster = e.target.checked; ayarKaydet(); };
   $('#kt').onchange = e => { a.kuralTur = e.target.checked; ayarKaydet(); };
   $('#yk').onchange = e => { a.yukKoruma = e.target.checked; ayarKaydet(); };
