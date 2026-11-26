@@ -1185,32 +1185,59 @@ function sesMetniTemizle(metin) {
 // - utterance çöp toplayıcıya gidince ses kesiliyor → global referans
 // - motor "duraklatılmış" kalabiliyor → resume()
 // - seçilen (çevrimiçi/doğal) ses hata verirse → varsayılan sesle yeniden dene
-let _sesUtt = null, _sesSayac = 0;
+// - cihaz sesi hiç başlamazsa (hata bile vermeden susarsa) → çevrimiçi ses dosyasıyla çal
+const SES_SURUM = 's3';
+let _sesUtt = null, _sesSayac = 0, _sesAudio = null, _cihazSesiBozuk = false;
+function sesTeshis(neden) {
+  const vs = window.speechSynthesis?.getVoices?.() || [];
+  const de = vs.filter(v => /^de([-_]|$)/i.test(v.lang)).length;
+  toast(`Ses çalınamadı (${neden}) · sürüm ${SES_SURUM} · ses: ${vs.length}, Almanca: ${de}${navigator.onLine ? '' : ' · çevrimdışı'}`, 7000);
+}
+function cevrimiciSes(yazi, hiz, benim) {
+  if (benim !== _sesSayac) return;
+  try { _sesAudio?.pause(); } catch {}
+  const parca = yazi.slice(0, 190);
+  const a = new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=de&q=' + encodeURIComponent(parca));
+  a.playbackRate = Math.max(0.5, Math.min(2, hiz / 0.95));
+  _sesAudio = a;
+  a.onerror = () => { if (benim === _sesSayac) sesTeshis('çevrimiçi ses yüklenemedi'); };
+  const p = a.play();
+  if (p?.catch) p.catch(e => { if (benim === _sesSayac) sesTeshis(e?.name === 'NotAllowedError' ? 'tarayıcı izin vermedi, tekrar basın' : 'çevrimiçi ses: ' + (e?.name || 'hata')); });
+}
 function seslendir(metin, hiz = 0.95) {
-  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return toast('Tarayıcı seslendirmeyi desteklemiyor');
   const yazi = sesMetniTemizle(metin);
   if (!yazi) return;
-  if (!almancaSes) sesSec();
   const benim = ++_sesSayac;
+  try { _sesAudio?.pause(); } catch {}
+  const cihazVar = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+  if (!cihazVar || _cihazSesiBozuk) return cevrimiciSes(yazi, hiz, benim);
+  if (!almancaSes) sesSec();
+  let basladi = false;
   const konus = (sesKullan) => {
     if (benim !== _sesSayac) return;
     const u = new SpeechSynthesisUtterance(yazi);
     u.lang = (sesKullan && almancaSes?.lang) || 'de-DE';
     if (sesKullan && almancaSes) u.voice = almancaSes;
     u.rate = hiz;
+    u.onstart = () => { basladi = true; };
     u.onerror = e => {
       if (benim !== _sesSayac || e.error === 'interrupted' || e.error === 'canceled') return;
       if (sesKullan && almancaSes) { konus(false); return; }   // varsayılan sesle bir kez daha
-      toast(e.error === 'not-allowed' ? 'Seslendirme için önce ekrana dokunun' :
-        'Seslendirme çalışmadı (' + (e.error || 'hata') + '). Cihazda Almanca ses yüklü mü?', 4000);
+      _cihazSesiBozuk = true; cevrimiciSes(yazi, hiz, benim);
     };
     _sesUtt = u;
     try { speechSynthesis.resume(); } catch {}
     speechSynthesis.speak(u);
   };
-  const mesgul = speechSynthesis.speaking || speechSynthesis.pending;
   speechSynthesis.cancel();
-  if (mesgul) setTimeout(() => konus(true), 80); else konus(true);
+  konus(true);   // dokunma anında, gecikmesiz (iPad/Safari gecikmeli çağrıyı sessizce engeller)
+  // Bekçi: cihaz sesi 1,5 sn içinde başlamadıysa bu oturumda çevrimiçi sese geç
+  setTimeout(() => {
+    if (benim !== _sesSayac || basladi || speechSynthesis.speaking) return;
+    speechSynthesis.cancel();
+    _cihazSesiBozuk = true;
+    cevrimiciSes(yazi, hiz, benim);
+  }, 1500);
 }
 
 // ------------------------------------------------------------ markdown (konu)
