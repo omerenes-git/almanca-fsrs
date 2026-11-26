@@ -1,6 +1,6 @@
 // Otomatik üretildi — Almanca FSRS PWA Service Worker
 const CACHE_PREFIX = "almanca-pwa-";
-const CACHE_NAME = CACHE_PREFIX + "3101e4847b96";
+const CACHE_NAME = CACHE_PREFIX + "3101e4847b97";
 const ASSETS = ["./", "./index.html", "./icerik.json", "./ilerleme.js", "./senkron.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
